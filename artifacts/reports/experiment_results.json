@@ -1,0 +1,218 @@
+{
+  "shap_top_features": [
+    {
+      "name": "risk_combo",
+      "importance": 0.900726
+    },
+    {
+      "name": "unique_error_groups",
+      "importance": 0.394676
+    },
+    {
+      "name": "unique_card_holders",
+      "importance": 0.335902
+    },
+    {
+      "name": "success_ratio",
+      "importance": 0.332525
+    },
+    {
+      "name": "reg_country",
+      "importance": 0.329782
+    },
+    {
+      "name": "antifraud_ratio",
+      "importance": 0.268543
+    },
+    {
+      "name": "gender",
+      "importance": 0.244677
+    },
+    {
+      "name": "fraud_error_ratio",
+      "importance": 0.227346
+    },
+    {
+      "name": "unique_cards",
+      "importance": 0.211829
+    },
+    {
+      "name": "mean_gap_minutes",
+      "importance": 0.191947
+    },
+    {
+      "name": "multi_holder_switch",
+      "importance": 0.191837
+    },
+    {
+      "name": "holders_per_tx",
+      "importance": 0.18592
+    },
+    {
+      "name": "country_mismatch_total",
+      "importance": 0.164149
+    },
+    {
+      "name": "card_country_mismatch_count",
+      "importance": 0.15687
+    },
+    {
+      "name": "traffic_type",
+      "importance": 0.131062
+    },
+    {
+      "name": "card_holder_per_card",
+      "importance": 0.129844
+    },
+    {
+      "name": "fail_ratio",
+      "importance": 0.113099
+    },
+    {
+      "name": "reg_country_te",
+      "importance": 0.109756
+    },
+    {
+      "name": "payment_country_mismatch_count",
+      "importance": 0.098339
+    },
+    {
+      "name": "tx_span_minutes",
+      "importance": 0.090791
+    },
+    {
+      "name": "antifraud_count",
+      "importance": 0.07589
+    },
+    {
+      "name": "minutes_to_first_tx",
+      "importance": 0.075058
+    },
+    {
+      "name": "fraud_error_count",
+      "importance": 0.067633
+    },
+    {
+      "name": "card_init_ratio",
+      "importance": 0.056983
+    },
+    {
+      "name": "card_init_count",
+      "importance": 0.056742
+    },
+    {
+      "name": "card_switch_ratio",
+      "importance": 0.051464
+    },
+    {
+      "name": "amount_cv",
+      "importance": 0.039068
+    },
+    {
+      "name": "minutes_to_first_success",
+      "importance": 0.036041
+    },
+    {
+      "name": "fail_streak_per_tx",
+      "importance": 0.035372
+    },
+    {
+      "name": "fail_count",
+      "importance": 0.029102
+    },
+    {
+      "name": "cards_per_tx",
+      "importance": 0.028294
+    },
+    {
+      "name": "amount_sum",
+      "importance": 0.026011
+    },
+    {
+      "name": "amount_min",
+      "importance": 0.025345
+    },
+    {
+      "name": "switches_per_card",
+      "importance": 0.024239
+    },
+    {
+      "name": "log_minutes_to_first_tx",
+      "importance": 0.024086
+    },
+    {
+      "name": "max_tx_per_day",
+      "importance": 0.021202
+    },
+    {
+      "name": "card_switch_count",
+      "importance": 0.016954
+    },
+    {
+      "name": "unique_card_countries",
+      "importance": 0.016892
+    },
+    {
+      "name": "amount_mean",
+      "importance": 0.01682
+    },
+    {
+      "name": "success_count",
+      "importance": 0.016471
+    },
+    {
+      "name": "max_fail_streak",
+      "importance": 0.015483
+    },
+    {
+      "name": "reg_hour",
+      "importance": 0.014831
+    },
+    {
+      "name": "reg_weekday",
+      "importance": 0.014548
+    },
+    {
+      "name": "max_users_per_card",
+      "importance": 0.013958
+    },
+    {
+      "name": "tx_count_per_card",
+      "importance": 0.013763
+    },
+    {
+      "name": "amount_max",
+      "importance": 0.0116
+    },
+    {
+      "name": "card_recurring_count",
+      "importance": 0.011223
+    },
+    {
+      "name": "amount_std",
+      "importance": 0.011136
+    },
+    {
+      "name": "tx_first_hour",
+      "importance": 0.010272
+    },
+    {
+      "name": "log_amount_sum",
+      "importance": 0.00976
+    }
+  ],
+  "experiment_results": {
+    "A_baseline": 0.623817,
+    "C_shap45": 0.623548,
+    "B_shap35": 0.622903,
+    "E_smooth": 0.620873,
+    "G_shap_bal": 0.620108,
+    "H_kitchen": 0.619924,
+    "D_balanced": 0.619458,
+    "F_bsmote": 0.619376,
+    "I_unbalance": 0.557
+  },
+  "best_approach": "optimized_blend",
+  "best_f1": 0.62592,
+  "baseline_f1": 0.6281
+}

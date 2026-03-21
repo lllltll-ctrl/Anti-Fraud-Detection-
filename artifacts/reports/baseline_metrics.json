@@ -1,0 +1,9 @@
+{
+  "oof_f1": 0.960716,
+  "approach": "raw_ml",
+  "predicted_fraud": 1951,
+  "predicted_fraud_rate": 0.011514,
+  "mixed_f1": 0.903792,
+  "threshold": 0.38,
+  "n_models": 8
+}
