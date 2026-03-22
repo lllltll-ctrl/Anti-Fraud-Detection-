@@ -230,6 +230,9 @@ def build_base_features(user_ids_list, tx_df, users_df):
     feats["fail_x_cards"] = feats["fail_ratio"] * feats["unique_cards"]
     feats["cards_x_holders"] = feats["unique_cards"] * feats["unique_card_holders"]
     feats["mismatch_x_cards"] = feats["card_reg_mismatch_ratio"] * feats["unique_cards"]
+    feats["fraud_err_x_cards"] = feats["eg_fraud_ratio"] * feats["unique_cards"]
+    feats["fast_reg_x_fail"] = np.clip(1.0 / feats["minutes_to_first_tx"].clip(lower=1).values, 0, 1) * feats["fail_ratio"]
+    feats["night_x_switch"] = feats["night_tx_ratio"] * feats["card_switch_ratio"]
 
     # Component size (no leakage - just structure)
     feats["comp_size"] = [len(components[user_component.get(uid, 0)]) for uid in user_ids_list]
@@ -592,7 +595,7 @@ for rnd in range(5):
         cn = _user_all_card_neighbors.get(uid, set())
         hn = _user_holder_neighbors.get(uid, set())
         neighbors = cn | hn
-        if not neighbors:
+        if len(neighbors) < 3:  # avoid cascading errors from weak signal
             continue
         fraud_n = neighbors & all_known_fraud
         if len(fraud_n) / len(neighbors) >= PROP_THRESHOLD:
@@ -611,21 +614,22 @@ for i, uid in enumerate(test_uid_list):
 
 log(f"After propagation: {test_preds.sum()} fraud ({test_preds.mean()*100:.2f}%)")
 
-# Fraud rate calibration: if below train fraud rate, promote top ML scores
+# Fraud rate calibration: cap at train fraud rate if over-predicting
 TARGET_FRAUD_RATE = 0.0378  # match train
 target_fraud_count = int(TARGET_FRAUD_RATE * len(test_preds))
 current_fraud = int(test_preds.sum())
-if current_fraud < target_fraud_count:
-    # Find non-fraud test users sorted by ML score descending
-    non_fraud_idx = np.where(test_preds == 0)[0]
-    scores = blend_test[non_fraud_idx]
-    top_idx = non_fraud_idx[np.argsort(-scores)]
-    needed = target_fraud_count - current_fraud
-    promoted = top_idx[:needed]
-    test_preds[promoted] = 1
+if current_fraud > target_fraud_count:
+    # Remove lowest-confidence fraud predictions (by ML score)
+    fraud_idx = np.where(test_preds == 1)[0]
+    scores = blend_test[fraud_idx]
+    # Sort ascending — lowest scores first (weakest fraud predictions)
+    weakest_idx = fraud_idx[np.argsort(scores)]
+    excess = current_fraud - target_fraud_count
+    demoted = weakest_idx[:excess]
+    test_preds[demoted] = 0
     log(f"\n=== CALIBRATION ===")
-    log(f"Promoted {len(promoted)} users to fraud (target rate {TARGET_FRAUD_RATE*100:.1f}%)")
-    log(f"Min promoted score: {blend_test[promoted[-1]]:.4f}" if len(promoted) > 0 else "")
+    log(f"Demoted {len(demoted)} weakest fraud to legit (cap at {TARGET_FRAUD_RATE*100:.1f}%)")
+    log(f"Max demoted score: {blend_test[demoted[-1]]:.4f}" if len(demoted) > 0 else "")
 
 log(f"\nFINAL HONEST F1: {final_f1:.4f}")
 log(f"Test: {test_preds.sum()} fraud ({test_preds.mean()*100:.2f}%)")
