@@ -2,31 +2,38 @@
 
 ## 1. Огляд рішення
 
-### Підхід: Two-Stage Graph + ML
+### Підхід: Two-Stage Graph + ML (Honest K-fold)
 
-Побудовано двоетапну систему виявлення платіжних шахраїв, яка комбінує аналіз графу зв'язків між користувачами з ML-ансамблем.
+Побудовано двоетапну систему виявлення платіжних шахраїв, яка комбінує аналіз графу зв'язків між користувачами з ML-ансамблем. Усі метрики — **honest** (без data leakage): графові фічі обчислюються через K-fold, щоб уникнути підглядання в мітки валідації.
 
-**Stage 1 — Графовий аналіз:**
+**Stage 1 — Графовий аналіз (Connected Components):**
 - Будуємо граф через `card_mask_hash` — користувачі пов'язані, якщо ділять одну картку
 - BFS знаходить connected components (420K компонентів)
-- Компоненти де ВСІ train-юзери fraud → автоматично fraud
+- Компоненти де **≥90%** train-юзерів fraud → автоматично fraud (near-pure threshold)
 - Компоненти без жодного fraud → автоматично legit
 - Решта (mixed) → йде на ML-класифікацію
 
 **Stage 2 — LightGBM Ensemble:**
-- 8 моделей (6 GBDT + 2 DART) з різними seeds/folds
-- ~85 features: поведінкові, темпоральні, графові, target encoding
+- 3 моделі GBDT з різними seeds
+- 62 features: поведінкові, графові (card + holder), target encoding, interaction features
 - Greedy weight blend оптимізація
+- K-fold graph features для честної оцінки
+
+**Stage 3 — Post-processing (Fraud Propagation):**
+- Після ML: поширюємо fraud через card + holder граф
+- Якщо ≥60% сусідів юзера — fraud → помічаємо як fraud
+- 3 раунди ітеративної propagation
 
 ### Ключові цифри
 | Метрика | Значення |
 |---------|----------|
-| OOF F1-score | **0.9607** |
-| Honest OOF F1 (K-fold graph) | **0.8035** |
-| Кількість ознак | ~85 |
-| Кількість моделей | 8 (6 GBDT + 2 DART) |
+| Honest OOF F1 (K-fold graph) | **0.8452** |
+| Кількість ознак | 62 |
+| Кількість моделей | 3 GBDT LightGBM |
 | Частка fraud у train | 3.78% (14 932 / 395 381) |
-| Прогнозований fraud у test | 1951 (1.15%) |
+| Прогнозований fraud у test | 7 768 (4.58%) |
+| Two-stage threshold | 0.07 |
+| Propagation threshold | 0.60 |
 
 ### Дані
 - **395 381** користувачів у train (14 932 шахраї)
@@ -38,36 +45,50 @@
 
 ## 2. Топ-5 ключових ознак / правил
 
-### 1. Графовий зв'язок через карту (`graph_card_fraud_ratio`)
+### 1. Fraud ratio через card_holder (`g_holder_fraud_ratio`) — importance: 508
 
-**Що це:** частка сусідів по card_mask_hash графу, які є підтвердженими шахраями.
+**Що це:** частка fraud-сусідів серед юзерів, що використовують те саме ім'я власника картки (card_holder).
 
-**Чому працює:** 99.9% шахраїв ділять хоча б одну картку з іншим шахраєм. Шахраї працюють "кільцями" — група зловмисників використовує пул викрадених карток, і кожна картка з'являється на кількох акаунтах. Якщо сусід по картці — шахрай, ймовірність fraud для поточного юзера різко зростає.
+**Чому працює:** шахраї часто вводять одне й те саме фейкове ім'я при оплаті різними картками. Або використовують реальне ім'я жертви на кількох акаунтах. Спільне card_holder ім'я — потужний тип зв'язку між fraud-акаунтами.
 
 **Статистика:**
-- 99.9% fraud-юзерів мають fraud-сусіда через карту
-- Connected components: 8 924 чисто-fraud компоненти, 3 768 змішаних
+- Feature importance: **508** (1-ше місце серед усіх ознак)
+- Обчислюється через K-fold для honest оцінки
 
-**Бізнес-логіка:** якщо нова картка вже фігурувала на заблокованому акаунті — це найсильніший red flag.
+**Бізнес-логіка:** якщо card_holder ім'я вже асоційоване з fraud — блокувати нові транзакції з цим ім'ям.
 
 ---
 
-### 2. Fraud ratio компоненти (`comp_fraud_ratio`)
+### 2. Країна реєстрації (`reg_country`) — importance: 353
+
+**Що це:** країна, з якої користувач зареєструвався на платформі.
+
+**Чому працює:** певні регіони мають значно вищий рівень шахрайства. Це пов'язано з доступністю викрадених карткових даних та інфраструктурою для fraud-операцій у цих регіонах.
+
+**Статистика:**
+- Feature importance: **353** (2-ге місце)
+- Підсилюється target encoding (`reg_country_te`)
+
+**Бізнес-логіка:** посилена верифікація для реєстрацій з високо-ризикових країн.
+
+---
+
+### 3. Fraud ratio компоненти (`g_comp_fraud_ratio`) — importance: 301
 
 **Що це:** частка відомих шахраїв серед усіх train-юзерів у тому ж connected component графу.
 
-**Чому працює:** шахраї утворюють щільні кластери через спільні картки. Якщо компонента на 80%+ складається з fraud-юзерів — новий юзер у цій компоненті майже напевно теж шахрай.
+**Чому працює:** шахраї утворюють щільні кластери через спільні картки. Якщо компонента на 90%+ складається з fraud-юзерів — новий юзер у цій компоненті майже напевно теж шахрай.
 
 **Статистика:**
-- Pure fraud компоненти: 8 924 юзерів (100% fraud rate)
-- Pure legit компоненти: 356 584 юзерів (0% fraud rate)
-- Mixed: 29 873 юзерів (20.1% fraud rate)
+- Pure fraud компоненти (≥90%): 8 934 train-юзерів → auto-fraud
+- Pure legit компоненти: 356 584 train-юзерів → auto-legit
+- Mixed: 29 863 train-юзерів → ML класифікація
 
 **Бізнес-логіка:** моніторинг "кластерів" через shared cards — один заблокований акаунт розкриває всю мережу.
 
 ---
 
-### 3. Час від реєстрації до першої транзакції (`minutes_to_first_tx`)
+### 4. Час від реєстрації до першої транзакції (`minutes_to_first_tx`) — importance: 306
 
 **Що це:** скільки хвилин минуло між реєстрацією акаунту і першою платіжною спробою.
 
@@ -81,21 +102,7 @@
 
 ---
 
-### 4. Fraud ratio через card_holder (`graph_holder_fraud_ratio`)
-
-**Що це:** частка fraud-сусідів серед юзерів, що використовують те саме ім'я власника картки (card_holder).
-
-**Чому працює:** шахраї часто вводять одне й те саме фейкове ім'я при оплаті різними картками. Або використовують реальне ім'я жертви на кількох акаунтах. Спільне card_holder ім'я — ще один тип зв'язку між fraud-акаунтами.
-
-**Статистика:**
-- Feature importance: 2788 (3-тє місце після reg_country і minutes_to_first_tx)
-- Сильніший сигнал ніж card_mask_hash в деяких конфігураціях
-
-**Бізнес-логіка:** якщо card_holder ім'я вже асоційоване з fraud — блокувати нові транзакції з цим ім'ям.
-
----
-
-### 5. Частка невдалих транзакцій з error_group="fraud" (`fraud_error_ratio`)
+### 5. Частка невдалих транзакцій з error_group="fraud" (`eg_fraud_ratio`) — importance: 234
 
 **Що це:** яка частина транзакцій користувача була відхилена з причиною "fraud" від банку-емітента.
 
@@ -123,13 +130,14 @@
 [ГРАФОВИЙ АНАЛІЗ]
     ├── Картка вже на fraud-акаунті? → ЧЕРВОНИЙ (автоблок)
     ├── card_holder на fraud-акаунті? → ЧЕРВОНИЙ (автоблок)
+    ├── ≥60% сусідів — fraud? → ЧЕРВОНИЙ (propagation)
     └── Нових зв'язків немає → ML scoring
                                     │
                                     ▼
                             [ML SCORING]
-                            Score < 0.15  → ЗЕЛЕНИЙ (дозволити)
-                            0.15-0.50     → ЖОВТИЙ (обмеження)
-                            Score ≥ 0.50  → ЧЕРВОНИЙ (ручна перевірка)
+                            Score < 0.07  → ЗЕЛЕНИЙ (дозволити)
+                            0.07-0.30     → ЖОВТИЙ (обмеження)
+                            Score ≥ 0.30  → ЧЕРВОНИЙ (ручна перевірка)
 ```
 
 ### Деталі по зонах
@@ -137,81 +145,90 @@
 **ЧЕРВОНИЙ (автоблок через граф):**
 - Картка shared з відомим fraud → заморозити платіж
 - card_holder ім'я з fraud-акаунту → заморозити + KYC
+- ≥60% graph-сусідів fraud → автоблок (propagation rule)
 - Ловить ~60% шахраїв з precision ~99%
 
-**ЧЕРВОНИЙ (ML score ≥ 0.50):**
+**ЧЕРВОНИЙ (ML score ≥ 0.30):**
 - Заморозити вихідні платежі до верифікації
 - Надіслати на ручну перевірку (3-5 аналітиків)
 - Запросити KYC документи
 
-**ЖОВТИЙ (ML score 0.15-0.50):**
+**ЖОВТИЙ (ML score 0.07-0.30):**
 - Зменшити ліміти транзакцій
 - Увімкнути 3DS для всіх платежів
 - Моніторинг в реальному часі
 
-**ЗЕЛЕНИЙ (ML score < 0.15):**
+**ЗЕЛЕНИЙ (ML score < 0.07):**
 - Жодних обмежень
 
 ### Чому Graph-First
 
-1. **Граф дає найсильніший сигнал** — shared cards між fraud-акаунтами ловлять більшість шахраїв
-2. **Працює в реальному часі** — O(1) lookup по card_mask_hash
+1. **Граф дає найсильніший сигнал** — shared cards + shared card_holder між fraud-акаунтами ловлять більшість шахраїв
+2. **Працює в реальному часі** — O(1) lookup по card_mask_hash та card_holder
 3. **Не потребує ML** для основного detection — простий rule engine
-4. **ML доповнює** для випадків де графовий зв'язок відсутній
+4. **Propagation** — fraud поширюється по графу автоматично, розкриваючи нові fraud-акаунти
+5. **ML доповнює** для випадків де графовий зв'язок відсутній
 
 ### Моніторинг і feedback loop
 
 - Щотижневий аналіз false positive / false negative
 - Дашборд з метриками по зонах
 - Ретренінг моделі щомісяця з новими fraud-кейсами
-- При виявленні нового fraud — автоматично поширювати "заразу" по графу на пов'язані акаунти
+- При виявленні нового fraud — автоматично поширювати "заразу" по графу на пов'язані акаунти (propagation)
 
 ### Очікуваний бізнес-ефект
 
 - **Graph-based detection**: ловить ~60% шахраїв з мінімальним false positive
-- **ML додатково**: ще ~25% шахраїв через поведінкові патерни
-- **Комбіновано**: зниження fraud-втрат на **80-85%** з втратою конверсії < 1%
+- **Propagation**: ще ~5% через автоматичне поширення fraud по графу
+- **ML додатково**: ще ~20% шахраїв через поведінкові патерни
+- **Комбіновано**: зниження fraud-втрат на **85%+** з втратою конверсії < 1%
 
 ---
 
 ## 4. Технічна реалізація
 
-### Основний скрипт: `train_2stage_v2.py`
+### Основний скрипт: `train_2stage_honest.py`
 
 ```
 1. Завантаження даних (train/test transactions + users)
-2. Побудова card graph (card_mask_hash → connected components)
-3. Побудова holder graph (card_holder → зв'язки)
-4. Feature engineering (~85 ознак)
-5. Target encoding (K-fold, smoothing=50)
-6. Training: 8 моделей LightGBM (6 GBDT + 2 DART)
-7. Greedy weight blend optimization
-8. Two-stage override (pure components → auto, mixed → ML)
-9. Threshold optimization на OOF
+2. Побудова card graph (card_mask_hash → connected components, 420K)
+3. Побудова holder graph (card_holder → зв'язки для features)
+4. Pre-compute neighbor sets (card + holder)
+5. Feature engineering (62 ознаки)
+6. Target encoding (K-fold, smoothing=50)
+7. K-fold graph features (honest, no leakage)
+8. Training: 3 моделі LightGBM GBDT
+9. Greedy weight blend optimization
+10. Two-stage override (near-pure ≥90% → auto, mixed → ML)
+11. Fraud propagation через card + holder граф (threshold 0.6, 3 rounds)
 ```
 
-### Групи ознак (~85)
+### Групи ознак (62)
 
 | Група | Кількість | Приклади |
 |-------|-----------|---------|
-| Графові (card + holder) | 13 | graph_fraud_ratio, comp_fraud_ratio, graph_max_density |
-| Transaction aggregates | 25 | tx_count, fail_ratio, card_switch_ratio, amount_cv |
-| Temporal / velocity | 15 | minutes_to_first_tx, mean_gap_sec, night_tx_ratio |
-| Error patterns | 5 | fraud_error_ratio, antifraud_ratio, unique_error_groups |
-| Geographic | 5 | country_mismatch_ratio, card_reg_mismatch_ratio |
+| Графові (card + holder) | 10 | g_holder_fraud_ratio, g_comp_fraud_ratio, g_card_max_density |
+| Transaction aggregates | 15 | tx_count, fail_ratio, card_switch_ratio, amount_cv |
+| Temporal | 6 | minutes_to_first_tx, mean_gap_sec, tx_first_hour |
+| Error patterns | 4 | eg_fraud_ratio, eg_antifraud_ratio, eg_3ds_ratio |
+| Geographic | 2 | country_mismatch_ratio, card_reg_mismatch_ratio |
 | Target encoding | 4 | reg_country_te, gender_te, traffic_type_te, email_domain_te |
-| Component | 3 | comp_size, comp_fraud_ratio, comp_type_num |
-| Derived | ~15 | risk_combo, log_tx_count, fail_ratio_first_hour |
+| Component | 2 | comp_size, log_comp_size |
+| Interaction features | 3 | fail_x_cards, cards_x_holders, mismatch_x_cards |
+| Categoricals | 4 | gender, reg_country, traffic_type, email_domain |
+| Other | 12 | risk_combo, log_tx_count, digital_wallet_ratio, has_prepaid |
 
 ### Ансамбль
 
-| Модель | Folds | Seed | Тип |
-|--------|-------|------|-----|
-| gbdt_7f_42 | 7 | 42 | GBDT |
-| gbdt_5f_42 | 5 | 42 | GBDT |
-| gbdt_7f_123 | 7 | 123 | GBDT |
-| gbdt_5f_123 | 5 | 123 | GBDT |
-| gbdt_7f_999 | 7 | 999 | GBDT |
-| gbdt_7f_77 | 7 | 77 | GBDT |
-| dart_7f_42 | 7 | 42 | DART |
-| dart_5f_123 | 5 | 123 | DART |
+| Модель | Folds | Seed | LR | Blend Weight |
+|--------|-------|------|----|-------------|
+| gbdt_5f_42 | 5 | 42 | 0.03 | 0.288 |
+| gbdt_5f_123 | 5 | 123 | 0.03 | 0.508 |
+| gbdt_5f_999 | 5 | 999 | 0.025 | 0.205 |
+
+### Ключові рішення
+
+1. **Near-pure threshold 90%** замість 100% — компоненти з ≥90% fraud автоматично класифікуються як fraud, що збільшує recall
+2. **Holder graph для features, не для BFS** — holder edges у BFS занадто агресивні (об'єднують fraud + legit компоненти), тому використовуються тільки для graph features та propagation
+3. **K-fold graph features** — кожен fold бачить тільки мітки з інших folds для обчислення графових ознак, що запобігає data leakage
+4. **Fraud propagation** — після ML, поширюємо fraud по card + holder графу з порогом 60%, 3 раунди (+733 нових fraud)
