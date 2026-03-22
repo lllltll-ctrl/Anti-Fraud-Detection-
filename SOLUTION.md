@@ -15,7 +15,7 @@
 
 **Stage 2 — LightGBM Ensemble:**
 - 3 моделі GBDT з різними seeds
-- 62 features: поведінкові, графові (card + holder), target encoding, interaction features
+- 65 features: поведінкові, графові (card + holder), target encoding, interaction features
 - Greedy weight blend оптимізація
 - K-fold graph features для честної оцінки
 
@@ -199,7 +199,7 @@
 8. Training: 3 моделі LightGBM GBDT
 9. Greedy weight blend optimization
 10. Two-stage override (near-pure ≥90% → auto, mixed → ML)
-11. Fraud propagation через card + holder граф (threshold 0.6, 3 rounds)
+11. Fraud propagation через card + holder граф (threshold 0.6, 2 rounds, min 3 neighbors)
 ```
 
 ### Групи ознак (65)
