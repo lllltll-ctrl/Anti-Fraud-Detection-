@@ -27,13 +27,13 @@
 ### Ключові цифри
 | Метрика | Значення |
 |---------|----------|
-| Honest OOF F1 (K-fold graph) | **0.8452** |
-| Кількість ознак | 62 |
+| Honest OOF F1 (K-fold graph) | **0.8176** |
+| Кількість ознак | 65 |
 | Кількість моделей | 3 GBDT LightGBM |
 | Частка fraud у train | 3.78% (14 932 / 395 381) |
-| Прогнозований fraud у test | 7 768 (4.58%) |
-| Two-stage threshold | 0.07 |
-| Propagation threshold | 0.60 |
+| Прогнозований fraud у test | 6 405 (3.78%) |
+| Two-stage threshold | 0.05 |
+| Propagation threshold | 0.60 (min 3 neighbors) |
 
 ### Дані
 - **395 381** користувачів у train (14 932 шахраї)
@@ -45,41 +45,28 @@
 
 ## 2. Топ-5 ключових ознак / правил
 
-### 1. Fraud ratio через card_holder (`g_holder_fraud_ratio`) — importance: 508
+### 1. Fraud ratio через card_holder (`g_holder_fraud_ratio`) — importance: 110
 
 **Що це:** частка fraud-сусідів серед юзерів, що використовують те саме ім'я власника картки (card_holder).
 
 **Чому працює:** шахраї часто вводять одне й те саме фейкове ім'я при оплаті різними картками. Або використовують реальне ім'я жертви на кількох акаунтах. Спільне card_holder ім'я — потужний тип зв'язку між fraud-акаунтами.
 
 **Статистика:**
-- Feature importance: **508** (1-ше місце серед усіх ознак)
+- Feature importance: **110** (avg across folds)
 - Обчислюється через K-fold для honest оцінки
 
 **Бізнес-логіка:** якщо card_holder ім'я вже асоційоване з fraud — блокувати нові транзакції з цим ім'ям.
 
 ---
 
-### 2. Країна реєстрації (`reg_country`) — importance: 353
-
-**Що це:** країна, з якої користувач зареєструвався на платформі.
-
-**Чому працює:** певні регіони мають значно вищий рівень шахрайства. Це пов'язано з доступністю викрадених карткових даних та інфраструктурою для fraud-операцій у цих регіонах.
-
-**Статистика:**
-- Feature importance: **353** (2-ге місце)
-- Підсилюється target encoding (`reg_country_te`)
-
-**Бізнес-логіка:** посилена верифікація для реєстрацій з високо-ризикових країн.
-
----
-
-### 3. Fraud ratio компоненти (`g_comp_fraud_ratio`) — importance: 301
+### 2. Fraud ratio компоненти (`g_comp_fraud_ratio`) — importance: 255
 
 **Що це:** частка відомих шахраїв серед усіх train-юзерів у тому ж connected component графу.
 
 **Чому працює:** шахраї утворюють щільні кластери через спільні картки. Якщо компонента на 90%+ складається з fraud-юзерів — новий юзер у цій компоненті майже напевно теж шахрай.
 
 **Статистика:**
+- Feature importance: **255** (1-ше місце)
 - Pure fraud компоненти (≥90%): 8 934 train-юзерів → auto-fraud
 - Pure legit компоненти: 356 584 train-юзерів → auto-legit
 - Mixed: 29 863 train-юзерів → ML класифікація
@@ -88,7 +75,21 @@
 
 ---
 
-### 4. Час від реєстрації до першої транзакції (`minutes_to_first_tx`) — importance: 306
+### 3. Fail ratio × кількість карток (`fail_x_cards`) — importance: 159
+
+**Що це:** interaction feature — множимо частку невдалих транзакцій на кількість унікальних карток юзера.
+
+**Чому працює:** шахраї перебирають багато карток і мають високий fail rate. Комбінація цих двох сигналів значно сильніша ніж кожен окремо. Легітимний юзер може мати або багато карток (бізнес), або високий fail (тимчасова проблема), але рідко обидва одночасно.
+
+**Статистика:**
+- Feature importance: **159** (3-тє місце)
+- Нова interaction feature додана у v4
+
+**Бізнес-логіка:** юзер з >3 картками та fail rate >50% — високий ризик card testing.
+
+---
+
+### 4. Час від реєстрації до першої транзакції (`minutes_to_first_tx`) — importance: 93
 
 **Що це:** скільки хвилин минуло між реєстрацією акаунту і першою платіжною спробою.
 
@@ -102,7 +103,7 @@
 
 ---
 
-### 5. Частка невдалих транзакцій з error_group="fraud" (`eg_fraud_ratio`) — importance: 234
+### 5. Частка невдалих транзакцій з error_group="fraud" (`eg_fraud_ratio`) — importance: 74
 
 **Що це:** яка частина транзакцій користувача була відхилена з причиною "fraud" від банку-емітента.
 
@@ -203,7 +204,7 @@
 11. Fraud propagation через card + holder граф (threshold 0.6, 3 rounds)
 ```
 
-### Групи ознак (62)
+### Групи ознак (65)
 
 | Група | Кількість | Приклади |
 |-------|-----------|---------|
@@ -214,7 +215,7 @@
 | Geographic | 2 | country_mismatch_ratio, card_reg_mismatch_ratio |
 | Target encoding | 4 | reg_country_te, gender_te, traffic_type_te, email_domain_te |
 | Component | 2 | comp_size, log_comp_size |
-| Interaction features | 3 | fail_x_cards, cards_x_holders, mismatch_x_cards |
+| Interaction features | 6 | fail_x_cards, cards_x_holders, mismatch_x_cards, fraud_err_x_cards, fast_reg_x_fail, night_x_switch |
 | Categoricals | 4 | gender, reg_country, traffic_type, email_domain |
 | Other | 12 | risk_combo, log_tx_count, digital_wallet_ratio, has_prepaid |
 
@@ -222,13 +223,14 @@
 
 | Модель | Folds | Seed | LR | Blend Weight |
 |--------|-------|------|----|-------------|
-| gbdt_5f_42 | 5 | 42 | 0.03 | 0.288 |
-| gbdt_5f_123 | 5 | 123 | 0.03 | 0.508 |
-| gbdt_5f_999 | 5 | 999 | 0.025 | 0.205 |
+| gbdt_5f_42 | 5 | 42 | 0.03 | 0.000 |
+| gbdt_5f_123 | 5 | 123 | 0.03 | 0.371 |
+| gbdt_5f_999 | 5 | 999 | 0.025 | 0.629 |
 
 ### Ключові рішення
 
 1. **Near-pure threshold 90%** замість 100% — компоненти з ≥90% fraud автоматично класифікуються як fraud, що збільшує recall
 2. **Holder graph для features, не для BFS** — holder edges у BFS занадто агресивні (об'єднують fraud + legit компоненти), тому використовуються тільки для graph features та propagation
 3. **K-fold graph features** — кожен fold бачить тільки мітки з інших folds для обчислення графових ознак, що запобігає data leakage
-4. **Fraud propagation** — після ML, поширюємо fraud по card + holder графу з порогом 60%, 3 раунди (+733 нових fraud)
+4. **Fraud propagation** — після ML, поширюємо fraud по card + holder графу з порогом 60% та мінімум 3 сусіди (захист від каскадних помилок), 2 раунди (+199 нових fraud)
+5. **Calibration cap** — якщо fraud rate перевищує train (3.78%), прибираємо найслабші fraud predictions для калібрації

@@ -1,73 +1,58 @@
-# Anti-Fraud Strategy Project
+# Anti-Fraud Detection — SKELAR x mono AI Competition
 
-This project is built for the `Case Anti-Fraud 3` competition task.
+Two-stage fraud detection system combining graph analysis with ML ensemble.
 
-Primary objective:
-- maximize `f1-score` on the hidden test evaluation
+## Results
 
-Business objective:
-- detect risky users without building a brittle one-off solution
+| Metric | Value |
+|--------|-------|
+| Honest OOF F1 | **0.8176** |
+| Test fraud rate | 3.78% (6,405 / 169,449) |
+| Features | 65 |
+| Models | 3 LightGBM GBDT |
+| Training time | ~50 min |
 
-Core deliverables:
-- `submission.csv` with `id_user,is_fraud`
-- written explanation of the approach, top fraud signals, and business integration logic
+## Approach
 
-## Current Status
+**Stage 1 — Graph Override:**
+- Build card graph via `card_mask_hash` → 420K connected components
+- Components with ≥90% known fraud → auto-fraud
+- Components with 0% fraud → auto-legit
+- Mixed → Stage 2
 
-- executable Python pipeline is implemented in `src/`
-- automated test suite currently covers loaders, feature blocks, validation, training, runner logic, and submission formatting
-- current implemented feature groups: user, transaction aggregate, risk, and temporal
-- current dependency-light baseline can run on real data and previously reached validation `f1-score` around `0.1139` before the latest runtime-heavy model upgrade
-- current blocker: the upgraded full-data pipeline times out, so runtime optimization is the immediate next priority
+**Stage 2 — ML Classification:**
+- 3 LightGBM GBDT models (5-fold CV, different seeds)
+- 65 features: behavioral, graph (card + holder), target encoding, interactions
+- K-fold graph features (no data leakage)
+- Greedy weight blend optimization
 
-## Main Entry Points
+**Stage 3 — Post-processing:**
+- Fraud propagation through card + holder graph (threshold 60%, min 3 neighbors)
+- Calibration cap at train fraud rate (3.78%)
 
-- `src/pipeline.py`: end-to-end load, split, train, validate, predict, and artifact generation
-- `src/config.py`: artifact directory management
-- `tests/`: regression and contract tests for the pipeline
+## Files
 
-## Working Rules For Agents
-
-- Read `context.md` before making major changes.
-- If any error, failed experiment, or regression happens, write it to `bags.md`.
-- If you replace an approach, model, rule set, or implementation choice, write it to `context.md`.
-- Prefer changes that improve validation `f1-score` and preserve reproducibility.
-
-## Recommended Repository Layout
-
-```text
-.
-|-- bags.md
-|-- context.md
-|-- README.md
-|-- docs/
-|   |-- project-structure.md
-|   |-- technical-design.md
-|   |-- modeling-strategy.md
-|   `-- delivery-workflow.md
-|-- data/
-|   |-- raw/
-|   `-- processed/
-|-- notebooks/
-|-- src/
-|   |-- config.py
-|   |-- pipeline.py
-|   |-- data/
-|   |-- features/
-|   |-- models/
-|   |-- evaluation/
-|   |-- explain/
-|   `-- submission/
-|-- artifacts/
-|   |-- features/
-|   |-- models/
-|   |-- reports/
-|   `-- submissions/
-|-- tests/
-|-- train_users.csv
-|-- train_transactions.csv
-|-- test_users.csv
-`-- test_transactions.csv
+```
+train_2stage_honest.py    # Main pipeline (honest, no leakage)
+SOLUTION.md               # Detailed solution writeup (UA)
+artifacts/submissions/    # submission.csv output
 ```
 
-Documentation lives in `docs/`.
+## How to Run
+
+```bash
+# Requires: train_users.csv, train_transactions.csv, test_users.csv, test_transactions.csv
+pip install numpy pandas lightgbm scikit-learn
+python train_2stage_honest.py
+# Output: artifacts/submissions/submission.csv
+```
+
+## Top-5 Features
+
+1. **g_comp_fraud_ratio** (255) — fraud ratio in graph component
+2. **comp_size** (172) — component size
+3. **fail_x_cards** (159) — fail ratio × unique cards
+4. **traffic_type_te** (131) — target-encoded traffic type
+5. **cards_x_holders** (129) — unique cards × unique holders
+
+See [SOLUTION.md](SOLUTION.md) for full analysis and business integration proposal.
