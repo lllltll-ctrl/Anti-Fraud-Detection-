@@ -419,6 +419,7 @@ for name, n_folds, seed, mtype, params in configs:
     skf_m = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=seed)
     oof = np.zeros(len(y))
     tp_arr = np.zeros(len(te))
+    fold_importances = np.zeros(len(feature_cols))
 
     for fold, (tr_idx, val_idx) in enumerate(skf_m.split(tr, y)):
         # K-FOLD GRAPH: train graph uses only train fold labels
@@ -459,6 +460,7 @@ for name, n_folds, seed, mtype, params in configs:
         if mtype in ("lgb",):
             oof[val_idx] = m.predict_proba(val_fold[feature_cols])[:, 1]
             tp_arr += m.predict_proba(te[feature_cols])[:, 1] / n_folds
+            fold_importances += m.feature_importances_
 
     t_, f1_ = find_best_threshold(y, oof)
     log(f"  F1={f1_:.4f}")
@@ -467,11 +469,12 @@ for name, n_folds, seed, mtype, params in configs:
     model_labels.append(name)
 
     if name == configs[0][0]:
-        imp = dict(zip(feature_cols, m.feature_importances_))
-        top20 = sorted(imp.items(), key=lambda x: x[1], reverse=True)[:20]
-        log("  Top-20 features:")
+        # Average importance across all folds (stored during CV loop)
+        avg_imp = dict(zip(feature_cols, fold_importances / n_folds))
+        top20 = sorted(avg_imp.items(), key=lambda x: x[1], reverse=True)[:20]
+        log("  Top-20 features (avg across folds):")
         for fn, fv in top20:
-            log(f"    {fn}: {fv}")
+            log(f"    {fn}: {fv:.0f}")
 
 # ============================================================
 # 8. BLEND
